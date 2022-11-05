@@ -1,5 +1,5 @@
 # concon
-Bash Script to backup your Steam(deck) Controller Controller Configurations
+Bash Script to backup your Steam(deck) Controller Configurations
 
 Search for steam controller config files in sub-directories, and copy them."
 Usage: concon --list <Config-Dir> ..."
