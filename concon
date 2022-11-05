@@ -8,8 +8,8 @@ Version=1.65
 
 #WEAREIN=$_
 WEAREIN="${_%/*}"
-CREATOR="76561198054512139"
-USER="94246411"
+CREATOR="Put your CREATOR number here"
+USER="put your USER number here"
 SUBDIR="ws"
 LOGGING=/dev/stdout
 
