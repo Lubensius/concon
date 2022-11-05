@@ -1,0 +1,370 @@
+#!/bin/bash
+Version=1.65
+#$./concon [<Config Dir>] [--list | <output dir>] [--more]
+
+#TODO debug --templates
+#TODO debug --all
+#TODO use /tmp when --template-update and no --out  
+
+#WEAREIN=$_
+WEAREIN="${_%/*}"
+CREATOR="76561198054512139"
+USER="94246411"
+SUBDIR="ws"
+LOGGING=/dev/stdout
+
+
+if [[ -n "$XDG_SESSION_DESKTOP" ]]; then
+CONFIG="Testdata/Steam/steamapps/common/Steam Controller Configs/"
+CONFIG2="Testdata/Steam/userdata/"
+CONFIG3="Testdata/Steam/steamapps/workshop/"
+TEMPLATES="Testdata/Steam/controller_base/templates/"
+else
+CONFIG="/home/deck/.local/share/Steam/steamapps/common/Steam Controller Configs/"
+CONFIG2="/home/deck/.local/share/Steam/userdata/"
+CONFIG3="/home/deck/.local/share/Steam/steamapps/workshop/"
+TEMPLATES="/home/deck/.local/share/Steam/controller_base/templates/"
+WEAREIN="/home/deck/Documents/Backup/" #TODO make $_ work on deck
+fi
+APP_CONFIG="$CONFIG/$USER/config/configset_"
+
+#read parameter and switches
+CONFIGS=()
+OUTDIR=""
+TEMPLDIR=""
+for ((I=$#; I >= 0; I--)); do
+ PARA="${BASH_ARGV[$I]}"
+ if [[ -n $PARA && -z "${PARA/#--*/}" ]]; then 
+    case "$PARA" in
+    --help)                 echo "Search for steam controller config files in sub-directories, and copy them."
+                            echo "Usage: concon --list <Config-Dir> ..."
+                            echo "       concon [--more|--templates|--all] [--out=<Output-Dir>] [--template-update] [--template-dir=<Template-Dir>] <Config-Dir> ..."
+                            echo "Version: $Version"
+                            echo "Options:"
+                            echo "       --help             this!"
+                            echo "       --list             only list possible config files"
+                            echo "       --quiet            no logging"
+                            echo "       --more             use configs not assigned to games"
+                            echo "       --template         use templates"
+                            echo "       --all              use configs from community"
+                            echo "       --template-list    list what would be updated in templates folder"
+                            echo "       --template-update  !!! modify template folder !!!"
+                            echo "       --template-dir=    use as template folder"
+                            echo "       --out=             Output folder (def: ./MyConfigs)"
+                            echo "       --log=             Output logfile"
+                            echo " !!! without --out ./MyConfigs will be overwritten !!!"
+                            exit ;;
+    --list)                 DO_LIST=1 ;;
+    --skip)                 DO_SKIP=1 ;;
+    --quiet)                LOGGING=/dev/null;;
+    --log=*)                 LOGGING="${PARA#--log=}" ;;
+    --more)                 DO_MORE=1 ;;
+    --all)                  DO_ALL=1; DO_MORE=1 ;;
+    --template)             DO_TEMPL=1; DO_MORE=1 ;;
+    --template-update)      DO_UPDATE=1 ;;
+    --template-list)        DO_UPD_LIST=1 ;;
+    --template-dir=*)       TEMPLDIR="${PARA#--template-dir=}/" ;;
+    --out=*)                OUTDIR="${PARA#--out=}/" ;;
+    *)                      echo "!!! $PARA" ignored;exit 1 ;;
+    esac
+ else
+    CONFIGS=("${CONFIGS[@]}" "${BASH_ARGV[$I]}") #TODO handle init right
+ fi
+done
+
+if [[ -z $TEMPLDIR ]]; then 
+    TEMPLDIR="$TEMPLATES"
+else
+    mkdir -p "$TEMPLDIR"
+fi
+
+if [[ -z ${CONFIGS[*]} ]]; then
+    if [[ -n $DO_TEMPL ]]; then 
+        CONFIGS=("$CONFIG" "$CONFIG2" "$CONFIG3" "$TEMPLDIR")
+    elif [[ -n $DO_MORE ]]; then 
+        CONFIGS=("$CONFIG" "$CONFIG2" "$CONFIG3")
+    else
+        CONFIGS=("$CONFIG" "$CONFIG2")
+    fi
+fi
+
+if [[ -z $OUTDIR ]]; then 
+    OUTDIR="./MyConfigs/"
+else
+    echo "!!! copy to: $OUTDIR"
+fi
+
+if [[ -z $DO_LIST ]]; then
+    mkdir -p "$OUTDIR"
+    mkdir -p "$OUTDIR$SUBDIR"
+    MD5SUM_LIST="${OUTDIR}templates.md5"
+    MD5SUM_TEMPL="${TEMPLDIR}templates.md5"
+    
+    if [[ ( -n $DO_UPDATE || -n $DO_UPD_LIST ) && -d $TEMPLDIR ]]; then
+        echo "!!! updating md5sum in $TEMPLDIR"
+        MD5SUM_TEMPL="${TEMPLDIR}templates.md5"
+        rm -I "$MD5SUM_TEMPL"
+        find "$TEMPLDIR" -iname "controller_*.vdf"| while read -r -t 10 T; do             #generate md5sum file
+            MD5SUM=$(tail -n +0$(grep -nm 1 """group""" "$T"|cut -f 1 -d ':') "$T"|md5sum|cut -f 1 -d' ')
+            T_DATE=$(date -r "$T" +"%y%m%d%H%M")                                          #date of the config file
+            T_GAME="Game"
+            T_CLT="${T##*/}";T_CLT="${T_CLT%%__*}"
+            echo "$MD5SUM $T_DATE ${T_GAME// /_} $T_CLT 0 0 0 ${T##*/}"  >>"$MD5SUM_TEMPL"                        
+        done
+    else
+        DO_UPDATE=""        #cancel update if folder doesnt exist
+    fi
+fi
+
+#search all pathes for config files
+if [[ -z $DO_SKIP ]]; then
+for P in "${CONFIGS[@]}"; do find "$P" -iname "controller_*.vdf" -o -iname "F*.vdf" -o -iname "*_legacy.bin"| while read -r -t 10 N; do
+   #for all files $N in the $CONFIG path which could be a controller config
+   if [[ $(head -1 "$N"|cut -d '"' -f2) = "controller_mappings" ]]; then # is config
+        #init variables which we will read out uf the config file
+        export_type=""
+        game=""
+        title=""
+        controller_type=""
+        export_type=""
+        version=""
+        revision=""
+        creator=""
+        GAME=""
+        GAMEN=""
+        FILENAME=""
+        GAME_DATE=""
+        GAME_CTL=""
+        GAME_FILE=""
+        
+        #generate variables out of config entrys for the first 11 lines
+        VARSTR=$(head -11 "$N" |             
+        tail -9 |
+        cut -sd '"' --output-delimiter='' -f 1-5 |
+        while read -r W1 W2
+        do 
+            echo "$W1=\"$W2\";"|tr -dC "[:print:]" #|tr -d "#"
+         
+        done)
+        #echo ":::$VARSTR:::"           #DEBUG 
+        eval "$VARSTR"
+        VARSTR=""
+        #when config is in old format
+        if [[ -z $title && -n $game ]]; then
+            title="$game"
+            echo ">>> set title:$game"     
+        fi
+        TITLE=${title%%[ ][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]} #remove date
+        
+        DATE=$(date -r "$N" +"%y%m%d%H%M")  #date of the config file
+        DIRN="$(dirname "$N")"              #location
+        DIRN=${DIRN##*/}                    #strip /
+        case $DIRN in 
+            ''|*[!0-9]*)  GAME="$DIRN"      #non steam games have no number
+            ;; 
+            *)
+            if (( ${#DIRN} > 8 )); then     #looking up which game uses this config
+                GAMEN=$(grep -B 2 -w "$DIRN" "$APP_CONFIG$controller_type.vdf" 2>/dev/null |head -1|tr -d "\t \"")
+                if [[ $GAMEN ]]; then       #translate number in game name
+                    GAME=$(grep -w -m1 "^$GAMEN," "$WEAREIN/steamcmd_appid.csv" |cut -d',' -f2|tr -d '"'|tr -d "'"|tr -dc "[[:alnum:]] -+_.,()#")
+                else
+                    GAME=""
+                fi               
+            else
+                #translate number in game name
+                GAME=$(grep -w -m1 "^$DIRN," "$WEAREIN/steamcmd_appid.csv" |cut -d',' -f2|tr -d '"'|tr -d "'"|tr -dc "[[:alnum:]] -+_.,()#") 
+                GAMEN="xx"
+            fi
+            ;; 
+        esac
+        
+        #if we still dont know the game
+        if [[  -z $GAME  ]]; then #try different        #TODO && ! $DO_LIST ???
+                #Try to detect GAME out of the path
+                GAMEN=${N/*\/apps\//};GAMEN=${GAMEN%%/*}
+                case $GAMEN in 
+                ''|*[!0-9]*)
+                    if [[ $DO_MORE && "$export_type" = "personal_cloud" ]]; then #force GAME #TODO templates ???
+                        GAME=$TITLE 
+                        echo ">>> Assigned:: $TITLE"
+                        GAMEN="xxx"
+                    else
+                            GAME=""
+                    fi
+                ;; 
+                *)
+                    GAME=$(grep -w -m1 "^$GAMEN," "$WEAREIN/steamcmd_appid.csv" |cut -d',' -f2|tr -d '"'|tr -d "'"|tr -dc "[[:alnum:]] -+_.,()#")
+                    if [[ -z $DO_LIST ]]; then
+                        if [[ -n $GAME ]]; then
+                            echo ">>> Assigned: $GAME"
+                        else
+                            echo "$GAMEN,\"$title\"" >>$OUTDIR/Missing.csv
+                        fi
+                    fi
+               ;;
+               esac
+        fi
+        
+        if (( ${#GAME} > 80 )); then echo ":::WARNING: Gamename too long (ID=$GAMEN)"; GAME=""; fi
+        
+        # now we have the data we need
+        if [[ $DO_LIST ]]; then #output listing only
+            if [[ -n $GAME ]]; then
+                echo "$GAME, $DATE, $title, $N"
+            else
+                echo "-, $DATE, $title, $N"
+            fi
+        elif [[ -z $DO_TEMPL && $GAME = "templates" ]]; then #no need to copy template folder 
+            echo "--- skipping template: $title ($N)"
+        else
+            echo "??? processing: $N"
+
+            #until now all configs were processed, not only ours!
+            if [[ -z $DO_ALL && "$creator" != "$CREATOR" ]]; then
+                echo "--- Not mine. "      #we copy only our configs
+            else
+            
+                if [[ -n $GAME ]]; then  
+                    #test if there is already a config for GAME
+                    ##### hier ist ein Problem mit der Suche, wenn GAME nicht eindeutig ist.
+                    GAMETEST=$(grep -m1 "${GAME// /_}\ $controller_type"  $MD5SUM_LIST 2>/dev/null) #TODO -m1 zeigt nur die erste Zeile an. Prüfen ob loop
+                    #echo ":::$GAMETEST:::"                                                          #DEBUG
+                    GAME_DATE=$(echo "$GAMETEST"|cut -f 2 -d ' ')
+                    GAME_CTL=$(echo "$GAMETEST"|cut -f 4 -d ' ')
+                    GAME_FILE=$(echo "$GAMETEST"|cut -f 8 -d ' ')
+                    if [[ -n $GAMETEST && "$(echo "$GAMETEST"|cut -f 3 -d ' ')" !=  "${GAME// /_}" ]]; then echo ":::ERROR 42"; fi    
+                    
+                    #Have we a duplicate, but newer? Backup one old.
+                    if [[ -n $GAME_DATE && $DATE -gt $GAME_DATE && "$GAME_CTL" = "$controller_type" ]]; then
+                        #echo ":::$GAMETEST:::$GAME_DATE:::"              #DEBUG
+                        #remove enty out of list
+                        #sed -i "/$GAME_DATE ${GAME// /_} $controller_type/d" "$MD5SUM_LIST"    #BUG?
+                        sed -i "/${GAME_FILE//\//\\\/}/d" "$MD5SUM_LIST"     #FILE should be unique
+                        mv -u "$GAME_FILE" "$OUTDIR$SUBDIR" 2>/dev/null
+                        if [[ -a "$GAME_FILE" ]]; then 
+                            #if we couldn't move the file, delete it. 
+                            rm -I "$GAME_FILE" 2>/dev/null
+                            echo "--- deleted old: $GAME_FILE"                                               
+                        else
+                            echo "--- move old: $GAME_FILE"
+                        fi
+                    fi
+                else
+                    GAME_DATE=""                       
+                fi
+                
+                # Test if it is a known config with different name
+                MD5SUM=$(tail -n +0"$(grep -nm 1 """group""" "$N"|cut -f 1 -d ':')" "$N"|md5sum|cut -f 1 -d' ')
+                MD5TEST=$(grep -m1 "$MD5SUM" "$MD5SUM_LIST" 2>/dev/null)      #MD5SUM sollte sonst nicht vorkommen
+                #echo :::$MD5TEST                       #DEBUG
+                MD5_DATE=$(echo "$MD5TEST"|cut -f 2 -d ' ')
+                MD5_GAME=$(echo "$MD5TEST"|cut -f 3 -d ' ')
+                MD5_FILE=$(echo "$MD5TEST"|cut -f 8 -d ' ')
+                
+                #have we a duplicate, but newer? Backup one old.
+                if [[ $MD5_DATE && $DATE -gt $MD5_DATE ]]; then
+                    #remove enty out of list!!! MD5SUM should be unique
+                    sed -i "/$MD5SUM/d" "$MD5SUM_LIST"
+                    if [[ -z $GAME || "$GAMEN" = "xxx" || $GAME = "templates" ]]; then GAME="$MD5_GAME"; fi        #old game name is better than none or title
+                    mv -u "$MD5_FILE" "$OUTDIR$SUBDIR" 2>/dev/null 
+                    if [[ -a "$MD5_FILE" ]]; then 
+                        rm -I "$MD5_FILE" 2>/dev/null        #if we couldn't move the file, delete it.
+                        echo "--- del. dup.: GAME | $MD5_FILE"                    
+                    else
+                        echo "--- move duplicate: $GAME | $MD5_FILE"
+                   fi 
+                fi
+                    
+                FILENAME="$controller_type  $GAME $DATE  $title.vdf"
+                FILENAME=$OUTDIR${FILENAME// /_} #add outdir path
+                #When this is the old config, backup only. 
+                if [[ -n $GAME_DATE && "$DATE" -lt "$GAME_DATE" && "$GAME_CTL" = "$controller_type" ]]; then #TODO TestBug? when --templates 
+                    cp --preserve=timestamp "$N" "$OUTDIR$SUBDIR/${FILENAME##*/}"      
+                    echo "+++ backup to::  $OUTDIR$SUBDIR/${FILENAME##*/}"                                       
+
+                #have we found a (newer) config for GAME?
+                elif [[ -z $MD5_DATE || $DATE -gt $MD5_DATE ]]; then
+                    #now the actual copy happens
+
+                    if [[ -n $GAME ]]; then  
+                                            #change the title in the config to the name of the last game while copy
+                        sed "/controller_mappings/,/actions/ s/\"title\".*\".*\"/\"title\"\t\t\t\"$GAME $DATE\"/" "$N" >"$FILENAME"
+                        touch -t "$DATE" "$FILENAME"                      #keep date
+                        echo "+++ copy to: $FILENAME"                        
+                       #add md5sum to list
+                        echo "$MD5SUM $DATE ${GAME// /_} $controller_type $version $revision 0 $FILENAME"  >>"$MD5SUM_LIST"                        
+                    else 
+                        FILENAME="$SUBDIR/$controller_type  $title $DATE  $export_type $version.$revision.vdf" #change to subdir format
+                        FILENAME=$OUTDIR${FILENAME// /_} #add outdir path
+                        GAME=${MD5_GAME:="unknown"}
+                        cp --preserve=timestamp "$N" "$FILENAME"
+                        echo "+++ backup to: $FILENAME"
+                    fi
+
+                elif [[ "$N" != "$FILENAME" ]]; then     #no need to bail #HERE change to else
+                    echo "--- duplicate of: $MD5SUM $MD5_FILE"
+                fi
+            
+	        fi
+        fi
+    else        #no magick token
+    	echo "--- no config: $N"
+    fi
+done;done >"$LOGGING"
+fi
+
+#now copy configs to the template folder
+if [[ ( -n $DO_UPDATE  || -n $DO_UPD_LIST ) && -z $DO_LIST ]]; then 
+    echo ""
+    echo "!!! updating templates in $TEMPLDIR"
+
+    #look for all files in OUTDIR what is new or newer
+    find "$OUTDIR" -maxdepth 1 -iname "controller_*.vdf"| while read -r -t 10 N; do          
+        #echo "??? processing: $N"                                         #DEBUG
+        MD5SUM=$(tail -n +0$(grep -nm 1 """group""" "$N"|cut -f 1 -d ':') "$N"|md5sum|cut -f 1 -d' ')
+        MD5TEST=$(grep -m1 "$MD5SUM" "$MD5SUM_LIST"    2>/dev/null)       #MD5SUM sollte sonst nicht vorkommen
+        T_MD5TEST=$(grep -m1 "$MD5SUM" "$MD5SUM_TEMPL" 2>/dev/null)       #MD5SUM sollte sonst nicht vorkommen
+        if [[ -n $MD5TEST ]]; then
+            MD5_DATE=$(echo "$MD5TEST"|cut -f 2 -d ' ')
+            MD5_GAME=$(echo "$MD5TEST"|cut -f 3 -d ' ')
+            MD5_CTL=$(echo "$MD5TEST"|cut -f 4 -d ' ')
+            
+            if [[ -z $T_MD5TEST ]]; then #it doesnt exist
+                #seach templates with the right name
+                GAMETEST=$(grep -m1 -E "${MD5_CTL}__${MD5_GAME// /_}_[0-9]{10}__"  $MD5SUM_TEMPL 2>/dev/null)         #TODO -m1 limits to one, what happens if there are more than one? 
+                if [[ -z $GAMETEST ]]; then                 #config for game doesnt exist yet
+                    echo "+++ copy to templates: ${N##*/}"
+                    if [[ -z $DO_UPD_LIST ]]; then
+                        cp --preserve=timestamp "$N" "$TEMPLDIR"
+                        T_GAME="game"                 
+                        echo "$MD5SUM $MD5_DATE ${T_GAME// /_} $MD5_CLT 0 0 0 ${N##*/}"  >>"$MD5SUM_TEMPL"                        
+                    fi                                                      
+                else
+                    TEMPL_DATE=$(echo "$GAMETEST"|cut -f 2 -d ' ')
+                    TEMPL_FILE=$(echo "$GAMETEST"|cut -f 8 -d ' ')
+                    if [[ "$TEMPL_DATE" -lt "$MD5_DATE" ]]; then 
+                        echo "--- delete from templates: ${TEMPL_FILE##*/}"
+                        if [[ -z $DO_UPD_LIST ]]; then
+                            rm -I "$TEMPLDIR$TEMPL_FILE"                 
+                            sed -i "/${TEMPL_FILE//\//\\\/}/d" "$MD5SUM_TEMPL"     #FILE should be unique
+                        fi
+                        echo "+++     copy to templates: ${N##*/}"
+                        if [[ -z $DO_UPD_LIST ]]; then
+                            cp --preserve=timestamp "$N" "$TEMPLDIR"
+                            T_GAME="game"                 
+                            echo "$MD5SUM $MD5_DATE ${T_GAME// /_} $MD5_CLT 0 0 0 ${N##*/}"  >>"$MD5SUM_TEMPL"                        
+                        fi
+                        #echo ":::$GAMETEST:::"                  #DEBUG
+                    else
+                        echo "--- old config: ${N##*/}"
+                    fi
+                fi
+            fi
+        else
+            echo "!!! md5 not found: ${N##*/}"                 
+        fi        
+    done
+fi
+
+
+
