@@ -41,6 +41,13 @@ Example:
 This will create a sub directory "MyConfigs" and list all configs which are currently actually used by you for games.
 "MyConfig" will be a backup of !!!all!!! your Configs
 
+SETUP
 
-For naming it relies on SteamCMD-AppID-List, which is included here as a sample. You should use the latest from https://github.com/dgibbs64/SteamCMD-AppID-List for best results.
+For naming it relies on SteamCMD-AppID-List, which is included here as a sample. You should use the latest from https://github.com/dgibbs64/SteamCMD-AppID-List for best results. It has to be in the same folder.
+
+You have to add your Steam User Number and your Creator Number in the script before usage. To find them do
+
+       echo USER is $(basename ~/.local/share/Steam/steamapps/common/Steam\ Controller\ Configs/*)
+
+...
  
