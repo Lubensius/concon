@@ -1,10 +1,16 @@
 # concon
 Bash Script to backup your Steam(deck) Controller Configurations
 
-Search for steam controller config files in sub-directories, and copy them."
-Usage: concon --list <Config-Dir> ..."
+Search for steam controller config files in sub-directories, and copy them in a folder with useful names.
+
+Usage: 
+       
+       concon --list <Config-Dir> ...
+
        concon [--more|--templates|--all] [--out=<Output-Dir>] [--template-update] [--template-dir=<Template-Dir>] <Config-Dir> ...
+
 Options:
+
        --help             this!
        --list             only list possible config files
        --quiet            no logging
@@ -21,11 +27,17 @@ Options:
 This script is intended to be run on the SteamDeck in a Terminal Window.
 
 Example:
-First try: ./concon --list
+
+       ./concon --list
+       or
+       ./concon --list --more
+
 this will do no harm :-)
 
 Example:
-./concon --template-list
+
+       ./concon --template-list
+
 This will create a sub directory "MyConfigs" and list all configs which are currently actually used by you for games.
 "MyConfig" will be a backup of !!!all!!! your Configs
 
