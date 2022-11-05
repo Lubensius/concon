@@ -31,3 +31,4 @@ This will create a sub directory "MyConfigs" and list all configs which are curr
 
 
 For naming it relies on SteamCMD-AppID-List, which is included here as a sample. You should use the latest from https://github.com/dgibbs64/SteamCMD-AppID-List for best results.
+ 
